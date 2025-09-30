@@ -23,7 +23,7 @@ STATE_DIR="$HOME/.pipe-script"
 STATE_USERNAME_FILE="$STATE_DIR/username.txt"
 
 umask 077
-mkdir -p "$STATE_DIR" "$WORKDIR" "$PASS_DIR"
+mkdir -p "$WORKDIR" /tmp/firestarter
 touch "$PASS_LOG"
 
 # ===== Helpers =====
@@ -172,29 +172,62 @@ read -rp "$(echo -e "${CYA}[INPUT]${NC} Press Enter after requesting DevNet SOLâ
 
 # ========================= Source file(s) selection ===========
 # You can generate a random file (original behavior) OR choose existing file(s).
-SOURCE_MIN_MB=50; SOURCE_MAX_MB=150
-RAND_MB="$(rand_int_range $SOURCE_MIN_MB $SOURCE_MAX_MB)"
-BASE_NAME="${USERNAME}"
+# ========================= Select existing files ===============
+FOLDER="/tmp/firestarter"
+FILES=("$FOLDER"/*)
 
-# invoke chooser
-if ! choose_source_files; then
-  warn "Source selection failed; falling back to generated file."
-  SOURCE_CHOICE="generate"
+if [[ ${#FILES[@]} -eq 0 ]]; then
+  err "No files found in $FOLDER"
+  exit 1
 fi
 
-# If generation chosen, create one random file as before
-if [[ "${SOURCE_CHOICE:-generate}" == "generate" ]]; then
-  SRC_FILE="${WORKDIR}/${BASE_NAME}.bin"
-  if [[ -f "$SRC_FILE" ]]; then
-    BASE_NAME="${USERNAME}-$(rand_suffix)"
-    SRC_FILE="${WORKDIR}/${BASE_NAME}.bin"
+echo -e "\nAvailable files in ${FOLDER}:"
+for i in "${!FILES[@]}"; do
+  printf "  %d) %s\n" $((i+1)) "$(basename "${FILES[i]}")"
+done
+
+read -rp "$(echo -e "${CYA}[INPUT]${NC} Enter indices (e.g. 1 3 5, 2-4): ")" sel
+
+expand_selection() {
+  local input="$1"
+  local result=()
+  for token in $(echo "$input" | tr ',' ' '); do
+    if [[ "$token" =~ ^[0-9]+-[0-9]+$ ]]; then
+      start="${token%-*}"
+      end="${token#*-}"
+      for ((j=start; j<=end; j++)); do
+        result+=("$j")
+      done
+    else
+      result+=("$token")
+    fi
+  done
+  echo "${result[@]}"
+}
+
+SELECTED_IDX=($(expand_selection "$sel"))
+
+SELECTED_FILES=()
+for idx in "${SELECTED_IDX[@]}"; do
+  if (( idx >= 1 && idx <= ${#FILES[@]} )); then
+    SELECTED_FILES+=("${FILES[idx-1]}")
+  else
+    warn "Index $idx is out of range"
   fi
-  retry_run "Generate file" "dd if=/dev/urandom of='${SRC_FILE}' bs=1M count='${RAND_MB}' status=none"
-  SRC_FILES=("$SRC_FILE")
-  info "Using generated file: ${SRC_FILE}"
-else
-  info "Using ${#SRC_FILES[@]} selected file(s)."
+done
+
+if [[ ${#SELECTED_FILES[@]} -eq 0 ]]; then
+  err "No valid files selected."
+  exit 1
 fi
+
+echo -e "${GRN}[OK]${NC} Selected files:"
+printf '  %s\n' "${SELECTED_FILES[@]}"
+
+# For backward compatibility, pick the first selected file as SRC_FILE
+SRC_FILE="${SELECTED_FILES[0]}"
+BASE_NAME="$(basename "$SRC_FILE")"
+
 
 # ========================= Wait for SOL =======================
 SOL_BAL="0"; attempt=1
@@ -343,3 +376,15 @@ retry_run "Upload directory ${WORKDIR}" "pipe upload-directory '${WORKDIR}' --ti
 
 # ========================= Usage report =======================
 retry_run "Token usage (30d detailed)" "pipe token-usage --period 30d --detailed || true"
+
+echo -e "\n${GRN}==================== FINAL NOTICE ====================${NC}"
+echo -e "   Social media link (for sharing):"
+echo -e "   ${BLU}${SOCIAL_LINK:-N/A}${NC}"
+echo -e ""
+if [[ -f "$CONFIG_FILE" ]]; then
+  echo -e "${YEL}[WARNING]${NC} Save this file to restore access on another server:"
+  echo -e "  ${BLU}${CONFIG_FILE}${NC}  (contains user_id and user_app_key)"
+else
+  echo -e "${RED}[ERROR]${NC} Pipe CLI config not found: ${CONFIG_FILE}"
+fi
+echo -e "${GRN}=======================================================${NC}"
