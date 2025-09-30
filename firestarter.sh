@@ -364,16 +364,6 @@ for src in "${SRC_FILES[@]}"; do
   fi
 done
 
-# ========================= Step 13: 3× random files (unchanged) =====
-BULK_MIN_MB=20; BULK_MAX_MB=100
-for i in 1 2 3; do
-  RAND_BULK_MB="$(rand_int_range $BULK_MIN_MB $BULK_MAX_MB)"
-  BULK_FILE="${WORKDIR}/bulk_${i}_$(rand_suffix).bin"
-  info "Generating ${BULK_FILE} (${RAND_BULK_MB} MiB)…"
-  retry_run "Generate bulk_${i}" "dd if=/dev/urandom of='${BULK_FILE}' bs=1M count='${RAND_BULK_MB}' status=none"
-done
-retry_run "Upload directory ${WORKDIR}" "pipe upload-directory '${WORKDIR}' --tier normal --skip-uploaded"
-
 # ========================= Usage report =======================
 retry_run "Token usage (30d detailed)" "pipe token-usage --period 30d --detailed || true"
 
