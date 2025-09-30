@@ -257,9 +257,9 @@ for src in "${SRC_FILES[@]}"; do
   REMOTE_PLAIN="$REMOTE_BASENAME"
 if remote_exists "$REMOTE_PLAIN"; then
   note "Remote '$REMOTE_PLAIN' exists; creating a new name."
-  ext="${REMOTE_PLAIN##*.}"           # file extension (e.g. mp3)
-  name="${REMOTE_PLAIN%.*}"           # base name without extension
-  prefix="$(tr -dc 'a-z' </dev/urandom | head -c 3)"  # random 3 letters
+  ext="${base##*.}"                   # extension from original file
+  name="${REMOTE_BASENAME}"           # keep the logical base
+  prefix="$(tr -dc 'a-z' </dev/urandom | head -c 3)"
   REMOTE_PLAIN="${prefix}-${name}.${ext}"
 fi
   retry_run "Upload unencrypted file '${src}'" "pipe upload-file \"${src}\" \"${REMOTE_PLAIN}\" --tier normal"
