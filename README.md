@@ -32,3 +32,6 @@ A link to your file
 
 ✅ That’s it — your file is now live via Pipe CDN!
 Repeat every day
+
+Link to the originall script made by Nodes Guru:
+https://raw.githubusercontent.com/noderguru/Pipe_Firestarter-Storage/main/pipe_firestarter_workflow.sh
