@@ -293,7 +293,7 @@ for REM in "${REMOTE_PLAINS[@]}"; do
   PUBLINK_OUT=""
   if retry_capture "Create public link for ${REM}" PUBLINK_OUT "pipe create-public-link $(printf %q "$REM")"; then
     # First try: extract any URL
-    EXTRACTED_URL="$(printf '%s\n' "$PUBLINK_OUT" | grep -Eo 'https?://[^[:space:]"'\'"<>]+' | head -n1 || true)"
+    EXTRACTED_URL="$(printf '%s\n' "$PUBLINK_OUT" | grep -Eo 'https?://[^[:space:]]+' | head -n1 || true)"
     if [[ -n "$EXTRACTED_URL" ]]; then
       EXTRACTED_URL="$(add_preview_param "$EXTRACTED_URL")"
       ok "Public link for ${REM}: ${EXTRACTED_URL}"
