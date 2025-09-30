@@ -282,8 +282,8 @@ for idx in "${!REMOTE_PLAINS[@]}"; do
 done
 
 # ========================= Public links (robust) ========================
+# ========================= Public links (robust) ========================
 declare -A PUBLIC_LINKS
-# (optional but safe under 'set -u'): pre-fill to N/A so lookups never explode
 for REM in "${REMOTE_PLAINS[@]}"; do
   PUBLIC_LINKS["$REM"]="N/A"
 done
@@ -292,7 +292,6 @@ for REM in "${REMOTE_PLAINS[@]}"; do
   wait_until_available "$REM" || warn "Proceeding despite not-ready state for $REM."
   PUBLINK_OUT=""
   if retry_capture "Create public link for ${REM}" PUBLINK_OUT "pipe create-public-link $(printf %q "$REM")"; then
-    # First try: extract any URL
     EXTRACTED_URL="$(printf '%s\n' "$PUBLINK_OUT" | grep -Eo 'https?://[^[:space:]]+' | head -n1 || true)"
     if [[ -n "$EXTRACTED_URL" ]]; then
       EXTRACTED_URL="$(add_preview_param "$EXTRACTED_URL")"
@@ -301,7 +300,6 @@ for REM in "${REMOTE_PLAINS[@]}"; do
       continue
     fi
 
-    # Fallback to label-based lines
     SOCIAL_LINK="$(printf '%s\n' "$PUBLINK_OUT" | awk '/Social media link/{getline; print; exit}')"
     DIRECT_LINK="$(printf '%s\n' "$PUBLINK_OUT" | awk '/Direct link/{getline; print; exit}')"
     if [[ -n "$SOCIAL_LINK" ]]; then
@@ -325,7 +323,6 @@ for REM in "${REMOTE_PLAINS[@]}"; do
 done
 
 echo -e "\n${GRN}==== PUBLIC LINKS ====${NC}"
-# Use safe lookups under 'set -u'
 for REM in "${REMOTE_PLAINS[@]}"; do
   printf "  %s -> %s\n" "$REM" "${PUBLIC_LINKS[$REM]-N/A}"
 done
@@ -333,13 +330,11 @@ done
 FIRST_OK_LINK="$(
   for REM in "${REMOTE_PLAINS[@]}"; do
     val="${PUBLIC_LINKS[$REM]-}"
-    if [[ -n "$val" && "$val" != "N/A" ]]; then
-      echo "$val"
-      break
-    fi
+    if [[ -n "$val" && "$val" != "N/A" ]]; then echo "$val"; break; fi
   done
 )"
 SOCIAL_LINK="${FIRST_OK_LINK:-N/A}"
+
 
 # ========================= Encrypted upload (auto-pass) per file =======
 declare -a SEC_REMOTES
