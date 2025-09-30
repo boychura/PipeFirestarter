@@ -66,6 +66,16 @@ wait_until_available(){
   err "'$name' still not available after waiting."; return 1
 }
 
+add_preview_param() {
+  local u="$1"
+  [[ -z "$u" ]] && { echo ""; return; }
+  if [[ "$u" == *\?* ]]; then
+    echo "${u}&preview=true"
+  else
+    echo "${u}?preview=true"
+  fi
+}
+
 # ========================= File selection helper =========================
 choose_source_files(){
   local choice prompt_dir list_dir files tmp sel indices idx file
@@ -273,23 +283,33 @@ done
 
 # ========================= Public links (robust) ========================
 declare -A PUBLIC_LINKS
+# (optional but safe under 'set -u'): pre-fill to N/A so lookups never explode
+for REM in "${REMOTE_PLAINS[@]}"; do
+  PUBLIC_LINKS["$REM"]="N/A"
+done
+
 for REM in "${REMOTE_PLAINS[@]}"; do
   wait_until_available "$REM" || warn "Proceeding despite not-ready state for $REM."
   PUBLINK_OUT=""
   if retry_capture "Create public link for ${REM}" PUBLINK_OUT "pipe create-public-link $(printf %q "$REM")"; then
-    EXTRACTED_URL="$(printf '%s\n' "$PUBLINK_OUT" | grep -Eo 'https?://[^[:space:]"]+' | head -n1 || true)"
+    # First try: extract any URL
+    EXTRACTED_URL="$(printf '%s\n' "$PUBLINK_OUT" | grep -Eo 'https?://[^[:space:]"'\'"<>]+' | head -n1 || true)"
     if [[ -n "$EXTRACTED_URL" ]]; then
-      ok "Public link for ${REM}: ${EXTRACTED_URL}
-      PUBLIC_LINKS["$REM"]="${EXTRACTED_URL}
+      EXTRACTED_URL="$(add_preview_param "$EXTRACTED_URL")"
+      ok "Public link for ${REM}: ${EXTRACTED_URL}"
+      PUBLIC_LINKS["$REM"]="$EXTRACTED_URL"
       continue
     fi
+
+    # Fallback to label-based lines
     SOCIAL_LINK="$(printf '%s\n' "$PUBLINK_OUT" | awk '/Social media link/{getline; print; exit}')"
     DIRECT_LINK="$(printf '%s\n' "$PUBLINK_OUT" | awk '/Direct link/{getline; print; exit}')"
     if [[ -n "$SOCIAL_LINK" ]]; then
-      SOCIAL_LINK="${SOCIAL_LINK}&preview=true"
+      SOCIAL_LINK="$(add_preview_param "$SOCIAL_LINK")"
       ok "Parsed Social link for ${REM}: $SOCIAL_LINK"
       PUBLIC_LINKS["$REM"]="$SOCIAL_LINK"
     elif [[ -n "$DIRECT_LINK" ]]; then
+      DIRECT_LINK="$(add_preview_param "$DIRECT_LINK")"
       ok "Parsed Direct link for ${REM}: $DIRECT_LINK"
       PUBLIC_LINKS["$REM"]="$DIRECT_LINK"
     else
@@ -305,11 +325,20 @@ for REM in "${REMOTE_PLAINS[@]}"; do
 done
 
 echo -e "\n${GRN}==== PUBLIC LINKS ====${NC}"
-for REM in "${!PUBLIC_LINKS[@]}"; do
-  printf "  %s -> %s\n" "$REM" "${PUBLIC_LINKS[$REM]}"
+# Use safe lookups under 'set -u'
+for REM in "${REMOTE_PLAINS[@]}"; do
+  printf "  %s -> %s\n" "$REM" "${PUBLIC_LINKS[$REM]-N/A}"
 done
 
-FIRST_OK_LINK="$(for REM in "${REMOTE_PLAINS[@]}"; do [[ "${PUBLIC_LINKS[$REM]}" != "N/A" ]] && echo "${PUBLIC_LINKS[$REM]}" && break; done)"
+FIRST_OK_LINK="$(
+  for REM in "${REMOTE_PLAINS[@]}"; do
+    val="${PUBLIC_LINKS[$REM]-}"
+    if [[ -n "$val" && "$val" != "N/A" ]]; then
+      echo "$val"
+      break
+    fi
+  done
+)"
 SOCIAL_LINK="${FIRST_OK_LINK:-N/A}"
 
 # ========================= Encrypted upload (auto-pass) per file =======
