@@ -285,18 +285,52 @@ done
 
 # ========================= Public links (per-file) ========================
 # We'll capture and show per-file public link outputs
-PUBLINK_OUT=""; SOCIAL_LINK=""; DIRECT_LINK=""
+# ========================= Public links (robust) ========================
+declare -A PUBLIC_LINKS
 for REM in "${REMOTE_PLAINS[@]}"; do
+  # ensure object is available right now (race protection)
+  wait_until_available "$REM" || warn "Proceeding despite not-ready state for $REM."
+
   PUBLINK_OUT=""
-  if retry_capture "Create public link for '${REM}'" PUBLINK_OUT "pipe create-public-link '${REM}'"; then
-    SOCIAL_LINK="$(printf "%s" "$PUBLINK_OUT" | parse_social_link || true)"
-    DIRECT_LINK="$(printf "%s" "$PUBLINK_OUT" | parse_direct_link  || true)"
-    if [[ -n "$SOCIAL_LINK" ]]; then ok "Social media link for ${REM}: $SOCIAL_LINK"
-    elif [[ -n "$DIRECT_LINK" ]]; then ok "Direct link for ${REM}: $DIRECT_LINK"; SOCIAL_LINK="$DIRECT_LINK"
-    else warn "Could not parse links from create-public-link output for ${REM}."; SOCIAL_LINK="N/A"
+  if retry_capture "Create public link for ${REM}" PUBLINK_OUT "pipe create-public-link $(printf %q "$REM")"; then
+    # First try: extract any URL
+    EXTRACTED_URL="$(printf '%s\n' "$PUBLINK_OUT" | grep -Eo 'https?://[^[:space:]"]+' | head -n1 || true)"
+    if [[ -n "$EXTRACTED_URL" ]]; then
+      ok "Public link for ${REM}: $EXTRACTED_URL"
+      PUBLIC_LINKS["$REM"]="$EXTRACTED_URL"
+      continue
     fi
+    # Fallback to label-based lines
+    SOCIAL_LINK="$(printf '%s\n' "$PUBLINK_OUT" | awk '/Social media link/{getline; print; exit}')"
+    DIRECT_LINK="$(printf '%s\n' "$PUBLINK_OUT" | awk '/Direct link/{getline; print; exit}')"
+    if [[ -n "$SOCIAL_LINK" ]]; then
+      ok "Parsed Social link for ${REM}: $SOCIAL_LINK"
+      PUBLIC_LINKS["$REM"]="$SOCIAL_LINK"
+    elif [[ -n "$DIRECT_LINK" ]]; then
+      ok "Parsed Direct link for ${REM}: $DIRECT_LINK"
+      PUBLIC_LINKS["$REM"]="$DIRECT_LINK"
+    else
+      warn "No URL found for ${REM}. Raw output below:"
+      printf '%s\n' "$PUBLINK_OUT"
+      PUBLIC_LINKS["$REM"]="N/A"
+    fi
+  else
+    warn "create-public-link failed for ${REM}. Raw output:"
+    printf '%s\n' "$PUBLINK_OUT"
+    PUBLIC_LINKS["$REM"]="N/A"
   fi
 done
+
+# Summarize per-file links (don’t rely on a single SOCIAL_LINK variable)
+echo -e "\n${GRN}==== PUBLIC LINKS ====${NC}"
+for REM in "${!PUBLIC_LINKS[@]}"; do
+  printf "  %s -> %s\n" "$REM" "${PUBLIC_LINKS[$REM]}"
+done
+
+# Keep a first-successful link for the final banner, if you like:
+FIRST_OK_LINK="$(for REM in "${REMOTE_PLAINS[@]}"; do [[ "${PUBLIC_LINKS[$REM]}" != "N/A" ]] && echo "${PUBLIC_LINKS[$REM]}" && break; done)"
+SOCIAL_LINK="${FIRST_OK_LINK:-N/A}"
+
 
 # ========================= Encrypted upload (auto-pass) per file =======
 declare -a SEC_REMOTES
