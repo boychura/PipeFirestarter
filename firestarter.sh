@@ -30,7 +30,7 @@ touch "$PASS_LOG"
 retry_run(){ local d="$1"; shift; local a=1; while :; do info "$d (attempt $a/$MAX_RETRIES)"; if eval "$@"; then ok "$d succeeded."; return 0; fi; ((a>=MAX_RETRIES))&&{ err "$d failed after $MAX_RETRIES attempts."; return 1; }; warn "$d failed. Retrying after ${RETRY_PAUSE}s…"; sleep "$RETRY_PAUSE"; a=$((a+1)); done; }
 retry_capture(){ local d="$1" v="$2"; shift 2; local a=1 out rc; while :; do info "$d (attempt $a/$MAX_RETRIES)"; out="$(eval "$@" 2>&1)"; rc=$?; if [[ $rc -eq 0 ]]; then ok "$d succeeded."; printf -v "$v" "%s" "$out"; return 0; fi; ((a>=MAX_RETRIES))&&{ err "$d failed after $MAX_RETRIES attempts."; printf -v "$v" ""; return 1; }; warn "$d failed. Retrying after ${RETRY_PAUSE}s…"; sleep "$RETRY_PAUSE"; a=$((a+1)); done; }
 gen_username(){ tr -dc 'a-z' </dev/urandom | head -c 8; }
-gen_password(){ tr -dc 'A-Za-z0-9' </dev/urandom | head -c 12; }   # <= 12 chars now
+gen_password(){ tr -dc 'A-Za-z0-9' </dev/urandom | head -c 12; }
 rand_suffix(){ tr -dc 'a-z0-9' </dev/urandom | head -c 6; }
 rand_int_range(){ awk -v min="$1" -v max="$2" 'BEGIN{srand(); print int(min+rand()*(max-min+1))}'; }
 rand_sol_amount(){ n=$(rand_int_range 70 90); awk -v n="$n" 'BEGIN{printf("%.2f", n/100)}'; }
@@ -68,10 +68,6 @@ wait_until_available(){
 
 # ========================= File selection helper =========================
 choose_source_files(){
-  # Interactive chooser:
-  # - G : generate random file (default)
-  # - C : choose files from a directory (defaults: /tmp/firestarter and $WORKDIR)
-  # - P : paste a full path to a single file
   local choice prompt_dir list_dir files tmp sel indices idx file
   echo
   echo -e "${CYA}Source file selection:${NC}"
@@ -81,26 +77,15 @@ choose_source_files(){
   read -rp "$(echo -e "${CYA}[INPUT]${NC} Select option [G/C/P] (Enter=G): ")" choice
   choice="${choice:-G}"
   case "${choice^^}" in
-    G)
-      # generate as before
-      SOURCE_CHOICE="generate"
-      SRC_FILES=() # will be populated by caller
-      return 0
-      ;;
+    G) SOURCE_CHOICE="generate"; SRC_FILES=(); return 0 ;;
     C)
-      # ask for directory; default /tmp then WORKDIR
       read -rp "$(echo -e "${CYA}[INPUT]${NC} Directory to browse (Enter for /tmp/firestarter): ")" list_dir
       list_dir="${list_dir:-/tmp/firestarter}"
-      if [[ ! -d "$list_dir" ]]; then err "Directory '$list_dir' not found."; return 1; fi
+      [[ -d "$list_dir" ]] || { err "Directory '$list_dir' not found."; return 1; }
       echo "Listing regular files in $list_dir (largest first):"
-      # produce numbered list
       mapfile -t files < <(find "$list_dir" -maxdepth 1 -type f -printf "%s\t%p\n" 2>/dev/null | sort -nr | awk -F'\t' '{printf "%s\t%s\n",$1,$2}' | nl -v1 -w3 -s'. ' | sed 's/^\s*//')
-      if [[ ${#files[@]} -eq 0 ]]; then warn "No regular files found in $list_dir"; return 1; fi
-      # Show size+path nicely
-      i=0
+      [[ ${#files[@]} -gt 0 ]] || { warn "No regular files found in $list_dir"; return 1; }
       for entry in "${files[@]}"; do
-        # each entry like: " 1.  12345\t/path"
-        # convert to "1) size bytes - /path"
         raw="$(echo "$entry" | sed -E 's/^[[:space:]]*([0-9]+)\.\s*([0-9]+)\t(.*)/\1\t\2\t\3/')"
         idx="$(printf "%s" "$raw" | cut -f1)"
         size="$(printf "%s" "$raw" | cut -f2)"
@@ -127,20 +112,15 @@ choose_source_files(){
           warn "Skipping unrecognized token: $token"
         fi
       done
-      if [[ ${#SRC_FILES[@]} -eq 0 ]]; then err "No files selected."; return 1; fi
-      SOURCE_CHOICE="existing"
-      return 0
+      [[ ${#SRC_FILES[@]} -gt 0 ]] || { err "No files selected."; return 1; }
+      SOURCE_CHOICE="existing"; return 0
       ;;
     P)
       read -rp "$(echo -e "${CYA}[INPUT]${NC} Paste full path to file: ")" file
-      if [[ ! -f "$file" ]]; then err "File '$file' not found."; return 1; fi
-      SRC_FILES=("$file")
-      SOURCE_CHOICE="existing"
-      return 0
+      [[ -f "$file" ]] || { err "File '$file' not found."; return 1; }
+      SRC_FILES=("$file"); SOURCE_CHOICE="existing"; return 0
       ;;
-    *)
-      err "Unknown choice '$choice'"; return 1
-      ;;
+    *) err "Unknown choice '$choice'"; return 1 ;;
   esac
 }
 
@@ -171,8 +151,8 @@ echo -e "${BLU}Faucets:${NC} https://faucet.solana.com  or  https://solfate.com/
 read -rp "$(echo -e "${CYA}[INPUT]${NC} Press Enter after requesting DevNet SOL…")" _
 
 # ========================= Source file(s) selection ===========
-# You can generate a random file (original behavior) OR choose existing file(s).
-# ========================= Select existing files ===============
+# Using a simple directory picker for /tmp/firestarter
+shopt -s nullglob
 FOLDER="/tmp/firestarter"
 FILES=("$FOLDER"/*)
 
@@ -189,15 +169,11 @@ done
 read -rp "$(echo -e "${CYA}[INPUT]${NC} Enter indices (e.g. 1 3 5, 2-4): ")" sel
 
 expand_selection() {
-  local input="$1"
-  local result=()
+  local input="$1" result=()
   for token in $(echo "$input" | tr ',' ' '); do
     if [[ "$token" =~ ^[0-9]+-[0-9]+$ ]]; then
-      start="${token%-*}"
-      end="${token#*-}"
-      for ((j=start; j<=end; j++)); do
-        result+=("$j")
-      done
+      local start="${token%-*}" end="${token#*-}"
+      for ((j=start; j<=end; j++)); do result+=("$j"); done
     else
       result+=("$token")
     fi
@@ -224,10 +200,12 @@ fi
 echo -e "${GRN}[OK]${NC} Selected files:"
 printf '  %s\n' "${SELECTED_FILES[@]}"
 
-# For backward compatibility, pick the first selected file as SRC_FILE
+# Keep multi-upload working by filling SRC_FILES from the chooser
+SRC_FILES=("${SELECTED_FILES[@]}")
+
+# For backward compatibility, also set single-file variables
 SRC_FILE="${SELECTED_FILES[0]}"
 BASE_NAME="$(basename "$SRC_FILE")"
-
 
 # ========================= Wait for SOL =======================
 SOL_BAL="0"; attempt=1
@@ -251,8 +229,7 @@ done
 (( SWAP_OK==0 )) && warn "Swap failed; continuing."
 
 # ========================= Upload unencrypted (per-file) =========
-# For each selected file, upload as remote "my-file" (or suffix if exists)
-has_encrypt_flag=$(has_encrypt_password_flag || true) # used later
+has_encrypt_flag=$(has_encrypt_password_flag || true)
 declare -a REMOTE_PLAINS
 i=0
 for src in "${SRC_FILES[@]}"; do
@@ -283,24 +260,18 @@ for idx in "${!REMOTE_PLAINS[@]}"; do
   fi
 done
 
-# ========================= Public links (per-file) ========================
-# We'll capture and show per-file public link outputs
 # ========================= Public links (robust) ========================
 declare -A PUBLIC_LINKS
 for REM in "${REMOTE_PLAINS[@]}"; do
-  # ensure object is available right now (race protection)
   wait_until_available "$REM" || warn "Proceeding despite not-ready state for $REM."
-
   PUBLINK_OUT=""
   if retry_capture "Create public link for ${REM}" PUBLINK_OUT "pipe create-public-link $(printf %q "$REM")"; then
-    # First try: extract any URL
     EXTRACTED_URL="$(printf '%s\n' "$PUBLINK_OUT" | grep -Eo 'https?://[^[:space:]"]+' | head -n1 || true)"
     if [[ -n "$EXTRACTED_URL" ]]; then
       ok "Public link for ${REM}: $EXTRACTED_URL"
       PUBLIC_LINKS["$REM"]="$EXTRACTED_URL"
       continue
     fi
-    # Fallback to label-based lines
     SOCIAL_LINK="$(printf '%s\n' "$PUBLINK_OUT" | awk '/Social media link/{getline; print; exit}')"
     DIRECT_LINK="$(printf '%s\n' "$PUBLINK_OUT" | awk '/Direct link/{getline; print; exit}')"
     if [[ -n "$SOCIAL_LINK" ]]; then
@@ -321,16 +292,13 @@ for REM in "${REMOTE_PLAINS[@]}"; do
   fi
 done
 
-# Summarize per-file links (don’t rely on a single SOCIAL_LINK variable)
 echo -e "\n${GRN}==== PUBLIC LINKS ====${NC}"
 for REM in "${!PUBLIC_LINKS[@]}"; do
   printf "  %s -> %s\n" "$REM" "${PUBLIC_LINKS[$REM]}"
 done
 
-# Keep a first-successful link for the final banner, if you like:
 FIRST_OK_LINK="$(for REM in "${REMOTE_PLAINS[@]}"; do [[ "${PUBLIC_LINKS[$REM]}" != "N/A" ]] && echo "${PUBLIC_LINKS[$REM]}" && break; done)"
 SOCIAL_LINK="${FIRST_OK_LINK:-N/A}"
-
 
 # ========================= Encrypted upload (auto-pass) per file =======
 declare -a SEC_REMOTES
@@ -345,18 +313,16 @@ for src in "${SRC_FILES[@]}"; do
   else
     retry_run "Upload encrypted file '${src}' as ${SEC_REMOTE}" "{ printf '%s\n%s\n' \"${ENC_PASS}\" \"${ENC_PASS}\"; } | pipe upload-file \"${src}\" \"${SEC_REMOTE}\" --encrypt"
   fi
-  # persist password
   printf "%s" "$ENC_PASS" > "$ENC_PASS_FILE"; chmod 600 "$ENC_PASS_FILE"
   echo "$(date -Is) ${SEC_REMOTE} ${ENC_PASS}" >> "$PASS_LOG"
   note "Password saved: ${ENC_PASS_FILE} (logged in ${PASS_LOG})"
   SEC_REMOTES+=("$SEC_REMOTE")
 done
 
-# wait for availability on encrypted remotes
 sleep "$POST_AVAIL_SLEEP"
 for SEC in "${SEC_REMOTES[@]}"; do
   wait_until_available "$SEC" || warn "Encrypted object $SEC still not ready."
-done
+endone
 
 # ========================= Download+decrypt (std->legacy) per file ====
 HAS_PASS_FLAG=""
@@ -377,10 +343,8 @@ for SEC in "${SEC_REMOTES[@]}"; do
 done
 
 # ========================= SHA256 verify per file ======================
-# For each original source and its decrypted counterpart attempt verification
 for src in "${SRC_FILES[@]}"; do
   base="$(basename "$src")"
-  # find matching secure remote by base prefix (best-effort)
   matched=""
   for sec in "${SEC_REMOTES[@]}"; do
     if [[ "$sec" == secure-${base%%.*}-* ]]; then matched="$sec"; break; fi
