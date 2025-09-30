@@ -151,11 +151,18 @@ echo -e "${BLU}Faucets:${NC} https://faucet.solana.com  or  https://solfate.com/
 read -rp "$(echo -e "${CYA}[INPUT]${NC} Press Enter after requesting DevNet SOL…")" _
 
 # ========================= Source file(s) selection ===========
-# Using a simple directory picker for /tmp/firestarter
 shopt -s nullglob
-FOLDER="/tmp/firestarter"
-FILES=("$FOLDER"/*)
 
+# Ask for folder; Enter = default
+read -rp "$(echo -e "${CYA}[INPUT]${NC} Directory to browse (Enter for /tmp/firestarter): ")" FOLDER
+FOLDER="${FOLDER:-/tmp/firestarter}"
+
+if [[ ! -d "$FOLDER" ]]; then
+  err "Directory '$FOLDER' not found."
+  exit 1
+fi
+
+FILES=("$FOLDER"/*)
 if [[ ${#FILES[@]} -eq 0 ]]; then
   err "No files found in $FOLDER"
   exit 1
@@ -200,12 +207,13 @@ fi
 echo -e "${GRN}[OK]${NC} Selected files:"
 printf '  %s\n' "${SELECTED_FILES[@]}"
 
-# Keep multi-upload working by filling SRC_FILES from the chooser
+# Make the rest of the script see these
 SRC_FILES=("${SELECTED_FILES[@]}")
 
-# For backward compatibility, also set single-file variables
+# For backward compatibility
 SRC_FILE="${SELECTED_FILES[0]}"
 BASE_NAME="$(basename "$SRC_FILE")"
+
 
 # ========================= Wait for SOL =======================
 SOL_BAL="0"; attempt=1
