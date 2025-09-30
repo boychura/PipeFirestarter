@@ -322,7 +322,7 @@ done
 sleep "$POST_AVAIL_SLEEP"
 for SEC in "${SEC_REMOTES[@]}"; do
   wait_until_available "$SEC" || warn "Encrypted object $SEC still not ready."
-endone
+done
 
 # ========================= Download+decrypt (std->legacy) per file ====
 HAS_PASS_FLAG=""
