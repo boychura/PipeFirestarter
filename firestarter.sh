@@ -237,10 +237,13 @@ for src in "${SRC_FILES[@]}"; do
   base="$(basename "$src")"
   REMOTE_BASENAME="my-file-${i}-${base%%.*}"
   REMOTE_PLAIN="$REMOTE_BASENAME"
-  if remote_exists "$REMOTE_PLAIN"; then
-    note "Remote '$REMOTE_PLAIN' exists; creating a new name."
-    REMOTE_PLAIN="${REMOTE_BASENAME}-$(rand_suffix)"
-  fi
+if remote_exists "$REMOTE_PLAIN"; then
+  note "Remote '$REMOTE_PLAIN' exists; creating a new name."
+  ext="${REMOTE_PLAIN##*.}"           # file extension (e.g. mp3)
+  name="${REMOTE_PLAIN%.*}"           # base name without extension
+  prefix="$(tr -dc 'a-z' </dev/urandom | head -c 3)"  # random 3 letters
+  REMOTE_PLAIN="${prefix}-${name}.${ext}"
+fi
   retry_run "Upload unencrypted file '${src}'" "pipe upload-file \"${src}\" \"${REMOTE_PLAIN}\" --tier normal"
   REMOTE_PLAINS+=("$REMOTE_PLAIN")
 done
@@ -268,13 +271,14 @@ for REM in "${REMOTE_PLAINS[@]}"; do
   if retry_capture "Create public link for ${REM}" PUBLINK_OUT "pipe create-public-link $(printf %q "$REM")"; then
     EXTRACTED_URL="$(printf '%s\n' "$PUBLINK_OUT" | grep -Eo 'https?://[^[:space:]"]+' | head -n1 || true)"
     if [[ -n "$EXTRACTED_URL" ]]; then
-      ok "Public link for ${REM}: $EXTRACTED_URL"
-      PUBLIC_LINKS["$REM"]="$EXTRACTED_URL"
+      ok "Public link for ${REM}: ${EXTRACTED_URL}
+      PUBLIC_LINKS["$REM"]="${EXTRACTED_URL}
       continue
     fi
     SOCIAL_LINK="$(printf '%s\n' "$PUBLINK_OUT" | awk '/Social media link/{getline; print; exit}')"
     DIRECT_LINK="$(printf '%s\n' "$PUBLINK_OUT" | awk '/Direct link/{getline; print; exit}')"
     if [[ -n "$SOCIAL_LINK" ]]; then
+      SOCIAL_LINK="${SOCIAL_LINK}&preview=true"
       ok "Parsed Social link for ${REM}: $SOCIAL_LINK"
       PUBLIC_LINKS["$REM"]="$SOCIAL_LINK"
     elif [[ -n "$DIRECT_LINK" ]]; then
